@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "Please cite this experimental software if you use it in research."
+type: software
+title: "Experimental FLAC compression extension for libmseed"
+authors:
+  - family-names: Akimov
+    given-names: Andrei
+version: "FLAC21"
+abstract: >-
+  Experimental lossless FLAC compression inside fixed-length miniSEED2
+  records, with independent channel buffering, parallel repacking and exact
+  sample comparison. Encoding 21 is experimental and is not FDSN-assigned.
+  Based on libmseed 3.5.4 and unmodified libFLAC 1.5.0.
+license: GPL-3.0-only
+keywords:
+  - seismology
+  - miniSEED
+  - lossless compression
+  - FLAC

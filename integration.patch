@@ -1,0 +1,352 @@
+--- a/libmseed/pack.c
++++ b/libmseed/pack.c
+@@ -1,3 +1,7 @@
++/* Modified 2026-10-16 for experimental FLAC21 integration.
++ * Project integration contributions: Andrei Akimov; see ../AUTHORS.md.
++ * Added integration code: GPL-2.0-or-later; upstream Apache-2.0
++ * notices below remain applicable. Combined distribution: see ../LICENSE. */
+ /***************************************************************************
+  * Generic routines to pack miniSEED records using an MS3Record as a
+  * header template and data source.
+@@ -23,12 +27,14 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <time.h>
++#include <math.h>
+ 
+ #include "extraheaders.h"
+ #include "internalstate.h"
+ #include "libmseed.h"
+ #include "mseedformat.h"
+ #include "packdata.h"
++#include "../mseed_flac.h"
+ 
+ /* Internal from another source file */
+ extern double ms_nomsamprate (int factor, int multiplier);
+@@ -369,6 +375,22 @@
+       ms_log (2, "%s: Unknown sample type '%c'\n", msr->sid, msr->sampletype);
+       return -1;
+     }
++  }
++
++  /* FLAC21 uses the normal generator state with a codec-specific record writer. */
++  if (packer->encoding == DE_FLAC_EXPERIMENTAL)
++  {
++    double rate = msr3_sampratehz (msr);
++    if (packer->formatversion != 2 || packer->maxreclen < 512 ||
++        packer->maxreclen > 1048576 || (packer->maxreclen & (packer->maxreclen - 1)) ||
++        msr->sampletype != 'i' || msr->numsamples <= 0 || !msr->datasamples ||
++        !isfinite(rate) || rate < 1 || rate > 655350 || rate != floor(rate))
++    {
++      ms_log (2, "%s: FLAC21 requires miniSEED2, int32 samples, integer Hz and power-of-two records >=512\n", msr->sid);
++      return -1;
++    }
++    packer->maxsamples = 16384;
++    return 0;
+   }
+ 
+   /* Pack header (required for header-only and data-containing records) */
+@@ -560,106 +582,120 @@
+     return 0;
+   }
+ 
+-  /* Pack data samples */
+-  packoffset_bytes = packer->packed_samples * packer->samplesize;
+-
+-  /* miniSEED 2 FSDH sample count is 16-bit; cap so excess spills to next records */
+-  uint64_t samples_to_pack = remaining_samples;
+-  if (packer->formatversion == 2 && samples_to_pack > UINT16_MAX)
+-    samples_to_pack = UINT16_MAX;
+-
+-  samples_packed = msr_pack_data (
+-      packer->encoded, (uint8_t *)packer->msr->datasamples + packoffset_bytes, samples_to_pack,
+-      packer->maxdatabytes, packer->msr->sampletype, packer->encoding, packer->swapflag,
+-      &datalength, packer->msr->sid, packer->verbose);
+-
+-  if (samples_packed < 0)
+-  {
+-    ms_log (2, "%s: Error packing data samples\n", packer->msr->sid);
+-    return -1;
+-  }
+-  /* Only proceed if samples were actually packed */
+-  else if (samples_packed == 0)
+-  {
+-    packer->finished = 1;
+-    return 0;
+-  }
+-
+-  /* Copy encoded data into record */
+-  memcpy (packer->rawrec + packer->dataoffset, packer->encoded, datalength);
+-
+-  /* Version 3 record */
+-  if (packer->formatversion == 3)
+-  {
+-    /* Calculate record length */
+-    reclen_generated = packer->dataoffset + datalength;
+-
+-    /* Update number of samples and data length */
+-    *pMS3FSDH_NUMSAMPLES (packer->rawrec) = HO4u ((uint32_t)samples_packed, packer->swapflag);
+-    *pMS3FSDH_DATALENGTH (packer->rawrec) = HO4u (datalength, packer->swapflag);
+-
+-    /* Update start time if not first record */
+-    if (packer->recordcount > 0)
+-    {
+-      if (ms_nstime2time (packer->nextstarttime, &year, &day, &hour, &min, &sec, &nsec))
++  if (packer->encoding == DE_FLAC_EXPERIMENTAL)
++  {
++    MS3Record metadata = *packer->msr;
++    metadata.starttime = ms_sampletime (metadata.starttime, packer->packed_samples, metadata.samprate);
++    samples_packed = msflac_pack_record (&metadata,
++        (const int32_t *)metadata.datasamples + packer->packed_samples,
++        remaining_samples > 16384 ? 16384 : (int)remaining_samples,
++        packer->rawrec, packer->maxreclen);
++    if (samples_packed <= 0) return -1;
++    reclen_generated = packer->maxreclen;
++  }
++  else
++  {
++    /* Pack data samples */
++    packoffset_bytes = packer->packed_samples * packer->samplesize;
++
++    /* miniSEED 2 FSDH sample count is 16-bit; cap so excess spills to next records */
++    uint64_t samples_to_pack = remaining_samples;
++    if (packer->formatversion == 2 && samples_to_pack > UINT16_MAX)
++      samples_to_pack = UINT16_MAX;
++
++    samples_packed = msr_pack_data (
++        packer->encoded, (uint8_t *)packer->msr->datasamples + packoffset_bytes, samples_to_pack,
++        packer->maxdatabytes, packer->msr->sampletype, packer->encoding, packer->swapflag,
++        &datalength, packer->msr->sid, packer->verbose);
++
++    if (samples_packed < 0)
++    {
++      ms_log (2, "%s: Error packing data samples\n", packer->msr->sid);
++      return -1;
++    }
++    /* Only proceed if samples were actually packed */
++    else if (samples_packed == 0)
++    {
++      packer->finished = 1;
++      return 0;
++    }
++
++    /* Copy encoded data into record */
++    memcpy (packer->rawrec + packer->dataoffset, packer->encoded, datalength);
++
++    /* Version 3 record */
++    if (packer->formatversion == 3)
++    {
++      /* Calculate record length */
++      reclen_generated = packer->dataoffset + datalength;
++
++      /* Update number of samples and data length */
++      *pMS3FSDH_NUMSAMPLES (packer->rawrec) = HO4u ((uint32_t)samples_packed, packer->swapflag);
++      *pMS3FSDH_DATALENGTH (packer->rawrec) = HO4u (datalength, packer->swapflag);
++
++      /* Update start time if not first record */
++      if (packer->recordcount > 0)
+       {
+-        ms_log (2, "%s: Cannot convert record starttime: %" PRId64 "\n", packer->msr->sid,
+-                packer->nextstarttime);
+-        return -1;
++        if (ms_nstime2time (packer->nextstarttime, &year, &day, &hour, &min, &sec, &nsec))
++        {
++          ms_log (2, "%s: Cannot convert record starttime: %" PRId64 "\n", packer->msr->sid,
++                  packer->nextstarttime);
++          return -1;
++        }
++
++        *pMS3FSDH_NSEC (packer->rawrec) = HO4u (nsec, packer->swapflag);
++        *pMS3FSDH_YEAR (packer->rawrec) = HO2u (year, packer->swapflag);
++        *pMS3FSDH_DAY (packer->rawrec) = HO2u (day, packer->swapflag);
++        *pMS3FSDH_HOUR (packer->rawrec) = hour;
++        *pMS3FSDH_MIN (packer->rawrec) = min;
++        *pMS3FSDH_SEC (packer->rawrec) = sec;
+       }
+ 
+-      *pMS3FSDH_NSEC (packer->rawrec) = HO4u (nsec, packer->swapflag);
+-      *pMS3FSDH_YEAR (packer->rawrec) = HO2u (year, packer->swapflag);
+-      *pMS3FSDH_DAY (packer->rawrec) = HO2u (day, packer->swapflag);
+-      *pMS3FSDH_HOUR (packer->rawrec) = hour;
+-      *pMS3FSDH_MIN (packer->rawrec) = min;
+-      *pMS3FSDH_SEC (packer->rawrec) = sec;
+-    }
+-
+-    /* Calculate CRC and set */
+-    memset (pMS3FSDH_CRC (packer->rawrec), 0, sizeof (uint32_t));
+-    crc = ms_crc32c ((const uint8_t *)packer->rawrec, reclen_generated, 0);
+-    *pMS3FSDH_CRC (packer->rawrec) = HO4u (crc, packer->swapflag);
+-  }
+-  /* Version 2 record */
+-  else
+-  {
+-    /* V2 records are always full length */
+-    reclen_generated = packer->maxreclen;
+-
+-    /* Update number of samples */
+-    *pMS2FSDH_NUMSAMPLES (packer->rawrec) = HO2u ((uint16_t)samples_packed, packer->swapflag);
+-
+-    /* Zero any space between encoded data and end of record */
+-    uint32_t content = packer->dataoffset + datalength;
+-    if (content < packer->maxreclen)
+-      memset (packer->rawrec + content, 0, packer->maxreclen - content);
+-
+-    /* Update start time if not first record */
+-    if (packer->recordcount > 0)
+-    {
+-      nstime_t second_nstime = nstime2fsec_usec_offset (packer->nextstarttime, &fsec, &usec_offset);
+-
+-      /* Use the (possibly carried) second-resolution time so Y/D/H/M/S stay
+-       * consistent with fsec/usec_offset when rounding carries into the next second */
+-      if (second_nstime == NSTERROR ||
+-          ms_nstime2time (second_nstime, &year, &day, &hour, &min, &sec, NULL))
++      /* Calculate CRC and set */
++      memset (pMS3FSDH_CRC (packer->rawrec), 0, sizeof (uint32_t));
++      crc = ms_crc32c ((const uint8_t *)packer->rawrec, reclen_generated, 0);
++      *pMS3FSDH_CRC (packer->rawrec) = HO4u (crc, packer->swapflag);
++    }
++    /* Version 2 record */
++    else
++    {
++      /* V2 records are always full length */
++      reclen_generated = packer->maxreclen;
++
++      /* Update number of samples */
++      *pMS2FSDH_NUMSAMPLES (packer->rawrec) = HO2u ((uint16_t)samples_packed, packer->swapflag);
++
++      /* Zero any space between encoded data and end of record */
++      uint32_t content = packer->dataoffset + datalength;
++      if (content < packer->maxreclen)
++        memset (packer->rawrec + content, 0, packer->maxreclen - content);
++
++      /* Update start time if not first record */
++      if (packer->recordcount > 0)
+       {
+-        ms_log (2, "%s: Cannot convert record starttime: %" PRId64 "\n", packer->msr->sid,
+-                packer->nextstarttime);
+-        return -1;
+-      }
+-
+-      *pMS2FSDH_YEAR (packer->rawrec) = HO2u (year, packer->swapflag);
+-      *pMS2FSDH_DAY (packer->rawrec) = HO2u (day, packer->swapflag);
+-      *pMS2FSDH_HOUR (packer->rawrec) = hour;
+-      *pMS2FSDH_MIN (packer->rawrec) = min;
+-      *pMS2FSDH_SEC (packer->rawrec) = sec;
+-      *pMS2FSDH_FSEC (packer->rawrec) = HO2u (fsec, packer->swapflag);
+-
+-      if (packer->blockette_1001_offset)
+-      {
+-        *pMS2B1001_MICROSECOND (packer->rawrec + packer->blockette_1001_offset) = usec_offset;
++        nstime_t second_nstime = nstime2fsec_usec_offset (packer->nextstarttime, &fsec, &usec_offset);
++
++        /* Use the (possibly carried) second-resolution time so Y/D/H/M/S stay
++         * consistent with fsec/usec_offset when rounding carries into the next second */
++        if (second_nstime == NSTERROR ||
++            ms_nstime2time (second_nstime, &year, &day, &hour, &min, &sec, NULL))
++        {
++          ms_log (2, "%s: Cannot convert record starttime: %" PRId64 "\n", packer->msr->sid,
++                  packer->nextstarttime);
++          return -1;
++        }
++
++        *pMS2FSDH_YEAR (packer->rawrec) = HO2u (year, packer->swapflag);
++        *pMS2FSDH_DAY (packer->rawrec) = HO2u (day, packer->swapflag);
++        *pMS2FSDH_HOUR (packer->rawrec) = hour;
++        *pMS2FSDH_MIN (packer->rawrec) = min;
++        *pMS2FSDH_SEC (packer->rawrec) = sec;
++        *pMS2FSDH_FSEC (packer->rawrec) = HO2u (fsec, packer->swapflag);
++
++        if (packer->blockette_1001_offset)
++        {
++          *pMS2B1001_MICROSECOND (packer->rawrec + packer->blockette_1001_offset) = usec_offset;
++        }
+       }
+     }
+   }
+--- a/libmseed/unpack.c
++++ b/libmseed/unpack.c
+@@ -1,3 +1,7 @@
++/* Modified 2026-10-16 for experimental FLAC21 integration.
++ * Project integration contributions: Andrei Akimov; see ../AUTHORS.md.
++ * Added integration code: GPL-2.0-or-later; upstream Apache-2.0
++ * notices below remain applicable. Combined distribution: see ../LICENSE. */
+ /***************************************************************************
+  * Generic routines to unpack miniSEED records.
+  *
+@@ -30,6 +34,7 @@
+ #include <time.h>
+ 
+ #include "libmseed.h"
++#include "../mseed_flac.h"
+ #include "mseedformat.h"
+ #include "unpack.h"
+ #include "unpackdata.h"
+@@ -1297,6 +1302,23 @@
+     return MS_GENERROR;
+   }
+ 
++  if (msr->encoding == DE_FLAC_EXPERIMENTAL)
++  {
++    MS3Record *decoded = NULL;
++    if (msr->formatversion != 2 ||
++        msflac_unpack_record (msr->record, (uint32_t)msr->reclen, &decoded))
++      return MS_GENERROR;
++    if (msr->datasamples) libmseed_memory.free (msr->datasamples);
++    msr->datasamples = decoded->datasamples;
++    msr->datasize = decoded->datasize;
++    msr->numsamples = decoded->numsamples;
++    msr->sampletype = decoded->sampletype;
++    msr->datalength = decoded->datalength;
++    decoded->datasamples = NULL;
++    msr3_free (&decoded);
++    return msr->numsamples;
++  }
++
+   /* Determine offset to data and length of data payload */
+   if (msr3_data_bounds (msr, &dataoffset, &datasize))
+     return MS_GENERROR;
+--- a/libmseed/lookup.c
++++ b/libmseed/lookup.c
+@@ -1,3 +1,7 @@
++/* Modified 2026-10-16 for experimental FLAC21 integration.
++ * Project integration contributions: Andrei Akimov; see ../AUTHORS.md.
++ * Added integration code: GPL-2.0-or-later; upstream Apache-2.0
++ * notices below remain applicable. Combined distribution: see ../LICENSE. */
+ /***************************************************************************
+  * Generic lookup routines for miniSEED information.
+  *
+@@ -85,6 +89,7 @@
+   case DE_INT32:
+   case DE_STEIM1:
+   case DE_STEIM2:
++  case DE_FLAC_EXPERIMENTAL:
+   case DE_CDSN:
+   case DE_SRO:
+   case DE_DWWSSN:
+@@ -151,6 +156,8 @@
+   case 11:
+     return "STEIM-2 integer compression";
+     break;
++  case DE_FLAC_EXPERIMENTAL:
++    return "Experimental FLAC21 compact frame";
+   case 12:
+     return "GEOSCOPE Muxed 24-bit integer";
+     break;
+--- a/libmseed/libmseed.h
++++ b/libmseed/libmseed.h
+@@ -1,3 +1,7 @@
++/* Modified 2026-10-16 for experimental FLAC21 integration.
++ * Project integration contributions: Andrei Akimov; see ../AUTHORS.md.
++ * Added integration code: GPL-2.0-or-later; upstream Apache-2.0
++ * notices below remain applicable. Combined distribution: see ../LICENSE. */
+ /** ************************************************************************
+  * @file libmseed.h
+  *
+@@ -1583,6 +1587,7 @@
+ #define DE_FLOAT32 4      //!< 32-bit float (IEEE)
+ #define DE_FLOAT64 5      //!< 64-bit float (IEEE)
+ #define DE_STEIM1 10      //!< Steim-1 compressed integers
++#define DE_FLAC_EXPERIMENTAL 21 //!< Experimental compact FLAC profile, miniSEED 2 only
+ #define DE_STEIM2 11      //!< Steim-2 compressed integers
+ #define DE_GEOSCOPE24 12  //!< [Legacy] GEOSCOPE 24-bit integer
+ #define DE_GEOSCOPE163 13 //!< [Legacy] GEOSCOPE 16-bit gain ranged, 3-bit exponent
