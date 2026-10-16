@@ -2,9 +2,8 @@
 
 Current implementation: compact FLAC21.
 
-The source ZIP omits generated `.log` files. Reusable tests and fixtures,
-validation summaries and benchmark CSV/JSON results are retained. Tests may
-create fresh logs or output files when run; these are not build inputs.
+Reusable tests, fixtures and validation documentation are included. Tests may
+create logs or output files when run; these are not build inputs.
 
 This experimental C fork integrates compact FLAC frame support into
 libmseed 3.5.4. Normal libmseed packing and reading APIs now handle FLAC
@@ -22,26 +21,8 @@ This is an experimental public-release candidate, not a standard encoding.
 **21 is not an FDSN assignment or private-use reservation. Ordinary miniSEED
 readers cannot decode these FLAC records without this extension.**
 Read [FORMAT.md](FORMAT.md), [COMPATIBILITY.md](COMPATIBILITY.md),
-[LICENSE](LICENSE), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+[LICENSE](LICENSE), [LICENSE_NOTES.md](LICENSE_NOTES.md), [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
 [CHANGELOG.md](CHANGELOG.md) before redistributing or exchanging files.
-
-## Latest 20-station archive benchmark
-
-Twelve hours from 20 BK/CI stations, 120 BH/HH channels and 362,744,757
-samples, using four threads. All sample/timing/rate/flag
-comparisons PASS, including input containing 16 gaps and no overlaps.
-
-| Complete 512-byte record files | Bytes |
-| --- | ---: |
-| Repacked STEIM2 baseline | 469,800,960 |
-| Compact FLAC21 | 383,137,792 |
-
-Overall savings: **18.45%**, with savings at all 20 stations (9.33–27.96%).
-This includes headers, padding and record checksums. Aggregate recorded
-repack time was 95.47 minutes; these figures do not establish universal
-compression or speed guarantees. The comparator does not compare arbitrary
-extra headers. Benchmark CSV/JSON are in `benchmarks/`; numerical results are retained,
-with descriptive tool-version strings omitted from the JSON.
 
 ## Build and test
 
@@ -285,7 +266,7 @@ programs have their own GPL terms. FLAC source archive: version 1.5.0.
 Adapter, tests and integration additions: GPL-2.0-or-later (`COPYING.GPL`).
 The combined work is distributed under GPLv3, selecting the adapter's
 existing later-version permission, while retaining upstream notices. See
-LICENSE, COPYING.GPL3 and THIRD_PARTY_NOTICES.md. This is an experimental fork, not an upstream release.
+LICENSE, LICENSE_NOTES.md, COPYING.GPL3 and THIRD_PARTY_NOTICES.md. This is an experimental fork, not an upstream release.
 
 ## Multithreaded conversion
 

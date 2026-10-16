@@ -42,7 +42,7 @@ library; do not describe the entire FLAC archive as BSD-only.
 Copyright (C) 2026 Andrei Akimov, for original project contributions.
 Adapter, tools, tests and integration additions retain GPL-2.0-or-later notices.
 The combined Apache-2.0/GPL build is distributed under GPLv3, selecting the
-existing later-version permission. See LICENSE and COPYING.GPL3.
+existing later-version permission. See LICENSE, LICENSE_NOTES.md and COPYING.GPL3.
 
 License compatibility reference:
 https://www.apache.org/licenses/GPL-compatibility
