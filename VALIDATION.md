@@ -44,24 +44,6 @@ coverage requires a sanitizer build of the harness and library; its printed
 PASS wording alone does not establish that instrumentation was enabled.
 Valid mutations may be accepted. These tests do not prove absence of bugs.
 
-## Archive benchmark
-
-The supplied 20-station benchmark covers twelve hours, 120 BH/HH channels and
-362,744,757 int32 samples. All sample comparisons passed. Input includes
-16 gaps and no overlaps. Both output formats use 512-byte records.
-
-| Complete file format | Bytes |
-| --- | ---: |
-| STEIM2 | 469,800,960 |
-| Compact FLAC21 | 383,137,792 |
-
-Savings are 18.4468%, including headers, padding and checksums. All stations
-showed savings, ranging from 9.33% to 27.96%. Aggregate recorded packing time
-was 95.47 minutes. Results are in `benchmarks/results_20stations.csv` and
-`benchmarks/results_20stations.json`. Numerical measurements are preserved;
-descriptive tool-version strings are omitted. These supplied measurements
-are not a fresh download/rerun or a guarantee for every waveform or machine.
-
 ## Scope and limits
 
 `compare_samples` checks integer samples, channel identity, timing (allowing
@@ -89,7 +71,6 @@ cross-channel interleaving may differ. The shared-library symbol table was
 checked. The integration
 patch was reconstructed from the exact upstream base and reapplied successfully.
 
-The complete real archive benchmark was not rerun for this source check.
 A full build emits three existing upstream signedness warnings; the checks
 above completed successfully.
 

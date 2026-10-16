@@ -1,0 +1,27 @@
+# Extracted third-party build tree (source archive remains tracked)
+/flac-1.5.0/
+
+# Compiled objects and libraries
+*.o
+*.a
+*.so
+*.so.*
+*.a.tmp
+
+# Top-level tools and test outputs
+/repack
+/compare_samples
+/test_hybrid
+/test_repack
+/test_large_headers
+/test_many_channels
+/test_mutations
+/*.mseed
+*.log
+__pycache__/
+*.py[cod]
+
+# Upstream test/example executables
+/libmseed/test/test-runner
+/libmseed/example/lmtest
+/libmseed/test/testdata-*.mseed*
